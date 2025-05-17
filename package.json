@@ -1,0 +1,17 @@
+{
+  "name": "whatsapp-status-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp Status auto-view and react bot with QR and pairing code",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.6.7",
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
+    "pino": "^8.10.0",
+    "qrcode": "^1.5.1"
+  }
+}
