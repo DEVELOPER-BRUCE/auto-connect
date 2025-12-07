@@ -4,16 +4,16 @@ dotenv.config();
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
-import pino from 'pino';
-import { fileURLToPath } from 'url';
 import qrcode from 'qrcode';
 import {
   makeWASocket,
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
+  generatePairingCode,
   getContentType,
   DisconnectReason
 } from '@whiskeysockets/baileys';
+import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,12 +24,16 @@ const PORT = process.env.PORT || 3000;
 const sessionDir = path.join(__dirname, 'session');
 if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
 
-let QR_IMAGE = null;
 let PAIRING_CODE = null;
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
   const { version } = await fetchLatestBaileysVersion();
+
+  // Generate pairing code
+  const { pairingCode } = await generatePairingCode({ auth: state });
+  PAIRING_CODE = pairingCode;
+  console.log('Your pairing code:', PAIRING_CODE);
 
   const sock = makeWASocket({
     auth: state,
@@ -41,22 +45,11 @@ async function startBot() {
   sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('connection.update', async (update) => {
-    const { connection, qr, pairing, lastDisconnect } = update;
-
-    if (qr) {
-      PAIRING_CODE = null;
-      QR_IMAGE = await qrcode.toDataURL(qr);
-      console.log('QR code generated');
-    } else if (pairing && pairing.code) {
-      QR_IMAGE = null;
-      PAIRING_CODE = pairing.code;
-      console.log('Pairing code:', PAIRING_CODE);
-    }
+    const { connection, lastDisconnect } = update;
 
     if (connection === 'open') {
       console.log('✅ WhatsApp Connected!');
-      QR_IMAGE = null;
-      PAIRING_CODE = null;
+      PAIRING_CODE = null; // clear code once connected
     }
 
     if (connection === 'close') {
@@ -65,12 +58,12 @@ async function startBot() {
         console.log('❌ Connection lost, reconnecting...');
         startBot();
       } else {
-        console.log('❌ Logged out. Please delete session and scan again.');
+        console.log('❌ Logged out. Please pair again.');
       }
     }
   });
 
-  // Auto view/react to status
+  // Auto react to statuses
   sock.ev.on('messages.upsert', async ({ messages }) => {
     const msg = messages[0];
     if (!msg || msg.key.remoteJid !== 'status@broadcast') return;
@@ -86,10 +79,7 @@ async function startBot() {
 
     try {
       await sock.sendMessage(msg.key.remoteJid, {
-        react: {
-          text: react,
-          key: msg.key
-        }
+        react: { text: react, key: msg.key }
       });
       console.log(`Reacted to status with ${react}`);
     } catch (e) {
@@ -100,19 +90,9 @@ async function startBot() {
 
 startBot();
 
+// Web page showing pairing code
 app.get('/', (req, res) => {
-  if (QR_IMAGE) {
-    return res.send(`
-      <html>
-        <body style="font-family:sans-serif;text-align:center">
-          <h2>Scan this QR code with WhatsApp</h2>
-          <img src="${QR_IMAGE}" />
-          <p>Or use pairing code below (if available):</p>
-          <h1 style="color:blue">${PAIRING_CODE ?? '-'}</h1>
-        </body>
-      </html>
-    `);
-  } else if (PAIRING_CODE) {
+  if (PAIRING_CODE) {
     return res.send(`
       <html>
         <body style="font-family:sans-serif;text-align:center">
